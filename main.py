@@ -4,9 +4,14 @@ from dotenv import load_dotenv
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import classification_report, confusion_matrix
 from kusa import DatasetClient, DatasetSDKException
 from fetch_data import RemoteDataset
 import spacy
+import re
+import joblib
+import matplotlib.pyplot as plt
+import seaborn as sn
 
 load_dotenv()
 
@@ -71,9 +76,29 @@ def main():
     model.fit(X_train_vectorized, y_train)
 
     # Evaluate the model
+    y_pred = model.predict(X_test_vectorized)
     accuracy = model.score(X_test_vectorized, y_test)
     print(f"Accuracy on the test set: {accuracy:.2f}")
-
+    # Detailed evaluation
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred))
+    
+    print("\nConfusion Matrix:")
+    cm = confusion_matrix(y_test, y_pred)
+    print(cm)
+    
+    # Plot confusion matrix
+    sn.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.title('Confusion Matrix')
+    plt.show()
+    
+    # Save the model and vectorizer
+    joblib.dump(model, 'spam_classifier.pkl')
+    joblib.dump(vectorizer, 'tfidf_vectorizer.pkl')
+    print("Model and vectorizer saved.")
+    
     # Example emails to check predictions
     emails = [
         'Upto 20% discount on parking, exclusive offer just for you. Dont miss this reward!',
