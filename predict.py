@@ -21,11 +21,16 @@ def lemmatize_text(text, nlp, stop_words):
     return " ".join(lemma_text)
 
 def main():
-    if len(sys.argv) < 2:
-        print("Please provide at least one email to classify.")
-        return
+    # print("== ",sys.argv)
+    # if len(sys.argv) < 2:
+    #     print("Please provide at least one email to classify.")
+    #     return
     
-    emails = sys.argv[1:]
+    emails = [
+        'Upto 20% discount on parking, exclusive offer just for you. Dont miss this reward!',
+        'Hey mohan, can we get together to watch footbal game tomorrow?',
+        "Free entry in 2 a wkly comp to win FA Cup final tkts 21st May 2005. Text FA to 87121 to receive entry question(std txt rate)T&C's apply 08452810075over18's"
+    ]
     
     # Load the saved model and vectorizer
     model = joblib.load('spam_classifier.pkl')
