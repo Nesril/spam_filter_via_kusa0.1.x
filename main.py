@@ -1,119 +1,128 @@
 import os
-import pandas as pd
+import tensorflow as tf
 from dotenv import load_dotenv
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.metrics import classification_report, confusion_matrix
-from kusa import DatasetClient, DatasetSDKException
-from fetch_data import RemoteDataset
-import spacy
-import re
-import joblib
+from kusa import DatasetClient
+from sklearn.metrics import classification_report
 import matplotlib.pyplot as plt
-import seaborn as sn
+import seaborn as sns
+from fetch_data import SecureSpamDataset
+import pickle
 
+# Load environment variables
 load_dotenv()
 
-# Configuration
-PUBLIC_ID = os.getenv('PUBLIC_ID')
-SECRET_KEY = os.getenv('SECRET_KEY')
-BATCH_SIZE = 100
-
-# Load SpaCy model for text processing
-nlp = spacy.load("en_core_web_sm")
-stop_words = nlp.Defaults.stop_words
-
-def Lemmatize_text(text):
-    lemma_text = []
-    doc = nlp(text)
-    for token in doc:
-        if token.lemma_ not in stop_words and not token.is_punct:
-            lemma_text.append(token.lemma_)
-    return " ".join(lemma_text)
-
 def main():
-    # Initialize the SDK client
+    # Configuration
+    PUBLIC_ID = os.getenv('PUBLIC_ID')
+    SECRET_KEY = os.getenv('SECRET_KEY')
+    BATCH_SIZE = 100
+    EPOCHS = 5
+
+    # Initialize secure client
     client = DatasetClient(public_id=PUBLIC_ID, secret_key=SECRET_KEY)
 
     try:
-        init_data = client.initialize()
-        print(f"Total Rows: {init_data['totalRows']}")
-        print("First 10 Rows:")
-        print(init_data['first10Rows'])
-    except DatasetSDKException as e:
-        print(f"Initialization error: {e}")
-        return
+        # Create secure dataset
+        print("Initializing secure dataset...")
+        dataset = SecureSpamDataset(client=client, batch_size=BATCH_SIZE)
+        
+        # Create and prepare TensorFlow datasets
+        def prepare_datasets():
+            full_dataset = dataset.get_tf_dataset()
+            
+            # Calculate dataset sizes
+            total_batches = len(dataset) // BATCH_SIZE
+            train_size = int(0.8 * total_batches)
+            
+            # Repeat dataset indefinitely for training
+            train_ds = full_dataset.take(train_size).repeat()
+            test_ds = full_dataset.skip(train_size)
+            
+            return train_ds, test_ds, train_size
 
-    # Create the dataset
-    dataset = RemoteDataset(client=client, batch_size=BATCH_SIZE)
-    
-    # Fetch all data for processing
-    inputs, labels = dataset.get_all_data()  # Implement this method in your RemoteDataset
-    print("Fetched inputs and labels.")
-
-    labels = pd.DataFrame(labels, columns=['Category'])
-    inputs = pd.DataFrame(inputs, columns=['Message'])
-
-    merged_df = pd.concat([labels, inputs], axis=1)
-    
-    print("merged_df ",merged_df)
-    x=merged_df["Category"]
-    x=x.apply(lambda s:1 if s=="spam" else 0)
-    y=merged_df["Message"]
-    y=y.apply(Lemmatize_text)
-
-    # Split the dataset into training and testing sets
-    x_train, x_test, y_train, y_test = train_test_split(y, x, test_size=0.25, random_state=0)
-
-    # Vectorize the text data using TF-IDF
-    vectorizer = TfidfVectorizer()
-    X_train_vectorized = vectorizer.fit_transform(x_train)
-    X_test_vectorized = vectorizer.transform(x_test)
-
-    # Train the Multinomial Naive Bayes model
-    model = MultinomialNB()
-    model.fit(X_train_vectorized, y_train)
-
-    # Evaluate the model
-    y_pred = model.predict(X_test_vectorized)
-    accuracy = model.score(X_test_vectorized, y_test)
-    print(f"Accuracy on the test set: {accuracy:.2f}")
-    # Detailed evaluation
-    print("\nClassification Report:")
-    print(classification_report(y_test, y_pred))
-    
-    print("\nConfusion Matrix:")
-    cm = confusion_matrix(y_test, y_pred)
-    print(cm)
-    
-    # Plot confusion matrix
-    sn.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-    plt.xlabel('Predicted')
-    plt.ylabel('Actual')
-    plt.title('Confusion Matrix')
-    plt.show()
-    
-    # Save the model and vectorizer
-    joblib.dump(model, 'spam_classifier.pkl')
-    joblib.dump(vectorizer, 'tfidf_vectorizer.pkl')
-    print("Model and vectorizer saved.")
-    
-    # Example emails to check predictions
-    emails = [
-        'Upto 20% discount on parking, exclusive offer just for you. Dont miss this reward!',
-        'Hey mohan, can we get together to watch footbal game tomorrow?',
-        "Free entry in 2 a wkly comp to win FA Cup final tkts 21st May 2005. Text FA to 87121 to receive entry question(std txt rate)T&C's apply 08452810075over18's"
-    ]
-
-    # Process and predict on new emails
-    checked_emails = [Lemmatize_text(email) for email in emails]
-    emails_count = vectorizer.transform(checked_emails)
-    predictions = model.predict(emails_count)
-
-    # Display predictions
-    for email, prediction in zip(checked_emails, predictions):
-        print(f"Email: {email} => Prediction: {'spam' if prediction == 1 else 'ham'}")
+        train_ds, test_ds, train_steps = prepare_datasets()
+        
+        # Build model
+        print("Building model...")
+        model = tf.keras.Sequential([
+            tf.keras.layers.Embedding(
+                input_dim=len(dataset.tokenizer.word_index) + 1,
+                output_dim=64,
+                mask_zero=True
+            ),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64)),
+            tf.keras.layers.Dense(64, activation='relu'),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+        
+        model.compile(
+            loss='binary_crossentropy',
+            optimizer='adam',
+            metrics=['accuracy']
+        )
+        
+        # Train model with proper steps_per_epoch
+        print("Training model...")
+        history = model.fit(
+            train_ds,
+            steps_per_epoch=train_steps,
+            validation_data=test_ds,
+            epochs=EPOCHS
+        )
+        
+        # Evaluate
+        print("\nEvaluation Results:")
+        test_loss, test_acc = model.evaluate(test_ds)
+        print(f"Test Accuracy: {test_acc:.4f}")
+        
+        # Generate predictions for classification report
+        print("\nGenerating classification report...")
+        y_true, y_pred = [], []
+        for batch in test_ds:
+            texts, labels = batch
+            preds = (model.predict(texts, verbose=0) > 0.5).astype("int32")
+            y_true.extend(labels.numpy())
+            y_pred.extend(preds.flatten())
+        
+        print("\nClassification Report:")
+        print(classification_report(y_true, y_pred, target_names=['ham', 'spam']))
+        
+        # Plot training history
+        plt.figure(figsize=(12, 4))
+        plt.subplot(1, 2, 1)
+        plt.plot(history.history['accuracy'], label='Train Accuracy')
+        plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+        plt.title('Training History')
+        plt.ylabel('Accuracy')
+        plt.xlabel('Epoch')
+        plt.legend()
+        
+        # Confusion matrix
+        plt.subplot(1, 2, 2)
+        cm = tf.math.confusion_matrix(y_true, y_pred)
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                    xticklabels=['ham', 'spam'], 
+                    yticklabels=['ham', 'spam'])
+        plt.title('Confusion Matrix')
+        plt.ylabel('True Label')
+        plt.xlabel('Predicted Label')
+        
+        plt.tight_layout()
+        plt.show()
+        
+        # Save model and tokenizer
+        print("\nSaving model artifacts...")
+        model.save('secure_spam_model.keras')
+        
+        with open('tokenizer.pkl', 'wb') as handle:
+            pickle.dump(dataset.tokenizer, handle)
+        
+        print("Training completed successfully!")
+        
+    except Exception as e:
+        print(f"\nError during training: {str(e)}")
+        if 'client' in locals():
+            client._emergency_cleanup()
 
 if __name__ == "__main__":
     main()
