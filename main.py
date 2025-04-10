@@ -58,12 +58,16 @@ def main():
     })
     client.run_preprocessing()
 
-    train_model = train_model_factory(RandomForestClassifier, fixed_params={"class_weight": "balanced"})
+    train_model = train_model_factory(LogisticRegression, fixed_params={"class_weight": "balanced"})
 
     # Step 4: Train model using internal data
     client.train(
         user_train_func=train_model,
-        hyperparams={"max_iter": 1000},
+        hyperparams={
+            "C": 1.0,
+            "solver": "liblinear",
+            "max_iter": 1000
+        },
         target_column="Category"  # Make sure this column is your label (e.g., spam/ham)
     )
 
