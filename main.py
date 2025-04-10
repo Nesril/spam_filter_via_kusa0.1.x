@@ -9,7 +9,10 @@ import matplotlib.pyplot as plt
 load_dotenv()
 
 def train_model(X, y, **params):
-    model = LogisticRegression(**params)
+    model = LogisticRegression(
+        **params,
+        class_weight='balanced',
+    )
     model.fit(X, y)
     return model
 
@@ -20,16 +23,16 @@ def main():
 
     # Step 1: Initialize secure client
     client = SecureDatasetClient(public_id=PUBLIC_ID, secret_key=SECRET_KEY)
-
-    print("client ",client)
+    initialization = client.initialize()
     # Step 2: Load encrypted dataset into memory
     client.fetch_and_decrypt_batch(batch_size=500, batch_number=1)
 
     # Step 3: Configure preprocessing
     client.configure_preprocessing({
-        "tokenizer": "nltk",
-        "stopwords": True,
-        "reduction": "tfidf"
+         "tokenizer": "nltk",
+    "stopwords": True,
+    "reduction": "tfidf",
+    "target_column": "Category"
     })
     client.run_preprocessing()
 
@@ -50,6 +53,9 @@ def main():
     y_pred = client._SecureDatasetClient__trained_model.predict(client._SecureDatasetClient__X_val)
     cm = confusion_matrix(y_true, y_pred)
 
+    print("y_true ",y_true)
+    print("y_pred ",y_pred)
+    
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=["ham", "spam"], yticklabels=["ham", "spam"])
     plt.title("Confusion Matrix")
     plt.xlabel("Predicted")
@@ -59,7 +65,7 @@ def main():
     # Step 7: Save the trained model
     client.save_model("secure_spam_model.joblib")
 
-    print("\n🚀 Model training and evaluation completed securely.")
+   
 
 if __name__ == "__main__":
     main()
