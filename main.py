@@ -5,16 +5,38 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestClassifier
+
+from inspect import signature
+from sklearn.base import BaseEstimator
 
 load_dotenv()
 
-def train_model(X, y, **params):
-    model = LogisticRegression(
-        **params,
-        class_weight='balanced',
-    )
-    model.fit(X, y)
-    return model
+def train_model_factory(model_class: BaseEstimator, fixed_params=None):
+    """
+    Creates a universal training function that accepts only valid params for the model.
+    Also warns about invalid params passed by the user.
+    """
+    fixed_params = fixed_params or {}
+
+    def train_model(X, y, **params):
+        sig = signature(model_class.__init__)
+        accepted_params = set(sig.parameters.keys())
+
+        combined = {**fixed_params, **params}
+        valid_kwargs = {}
+        for k, v in combined.items():
+            if k in accepted_params:
+                valid_kwargs[k] = v
+            else:
+                print(f"⚠️ Skipping unsupported param '{k}' for {model_class.__name__}")
+
+        model = model_class(**valid_kwargs)
+        model.fit(X, y)
+        return model
+
+    return train_model
+
 
 def main():
     # Load credentials
@@ -30,11 +52,13 @@ def main():
     # Step 3: Configure preprocessing
     client.configure_preprocessing({
          "tokenizer": "nltk",
-    "stopwords": True,
-    "reduction": "tfidf",
-    "target_column": "Category"
+        "stopwords": True,
+        "reduction": "tfidf",
+        "target_column": "Category"
     })
     client.run_preprocessing()
+
+    train_model = train_model_factory(RandomForestClassifier, fixed_params={"class_weight": "balanced"})
 
     # Step 4: Train model using internal data
     client.train(
