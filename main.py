@@ -6,6 +6,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 
 from inspect import signature
 from sklearn.base import BaseEstimator
@@ -58,15 +59,16 @@ def main():
     })
     client.run_preprocessing()
 
-    train_model = train_model_factory(LogisticRegression, fixed_params={"class_weight": "balanced"})
-
+    train_model = train_model_factory(GradientBoostingClassifier)
     # Step 4: Train model using internal data
     client.train(
         user_train_func=train_model,
         hyperparams={
             "C": 1.0,
             "solver": "liblinear",
-            "max_iter": 1000
+            "max_iter": 1000,
+             "n_estimators": 200,
+        "learning_rate": 0.05
         },
         target_column="Category"  # Make sure this column is your label (e.g., spam/ham)
     )
