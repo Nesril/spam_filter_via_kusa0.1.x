@@ -1,128 +1,65 @@
 import os
-import tensorflow as tf
 from dotenv import load_dotenv
-from kusa import DatasetClient
-from sklearn.metrics import classification_report
-import matplotlib.pyplot as plt
+from kusa.client import SecureDatasetClient
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
-from fetch_data import SecureSpamDataset
-import pickle
+import matplotlib.pyplot as plt
 
-# Load environment variables
 load_dotenv()
 
+def train_model(X, y, **params):
+    model = LogisticRegression(**params)
+    model.fit(X, y)
+    return model
+
 def main():
-    # Configuration
-    PUBLIC_ID = os.getenv('PUBLIC_ID')
-    SECRET_KEY = os.getenv('SECRET_KEY')
-    BATCH_SIZE = 100
-    EPOCHS = 5
+    # Load credentials
+    PUBLIC_ID = os.getenv("PUBLIC_ID")
+    SECRET_KEY = os.getenv("SECRET_KEY")
 
-    # Initialize secure client
-    client = DatasetClient(public_id=PUBLIC_ID, secret_key=SECRET_KEY)
+    # Step 1: Initialize secure client
+    client = SecureDatasetClient(public_id=PUBLIC_ID, secret_key=SECRET_KEY)
 
-    try:
-        # Create secure dataset
-        print("Initializing secure dataset...")
-        dataset = SecureSpamDataset(client=client, batch_size=BATCH_SIZE)
-        
-        # Create and prepare TensorFlow datasets
-        def prepare_datasets():
-            full_dataset = dataset.get_tf_dataset()
-            
-            # Calculate dataset sizes
-            total_batches = len(dataset) // BATCH_SIZE
-            train_size = int(0.8 * total_batches)
-            
-            # Repeat dataset indefinitely for training
-            train_ds = full_dataset.take(train_size).repeat()
-            test_ds = full_dataset.skip(train_size)
-            
-            return train_ds, test_ds, train_size
+    print("client ",client)
+    # Step 2: Load encrypted dataset into memory
+    client.fetch_and_decrypt_batch(batch_size=500, batch_number=1)
 
-        train_ds, test_ds, train_steps = prepare_datasets()
-        
-        # Build model
-        print("Building model...")
-        model = tf.keras.Sequential([
-            tf.keras.layers.Embedding(
-                input_dim=len(dataset.tokenizer.word_index) + 1,
-                output_dim=64,
-                mask_zero=True
-            ),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64)),
-            tf.keras.layers.Dense(64, activation='relu'),
-            tf.keras.layers.Dense(1, activation='sigmoid')
-        ])
-        
-        model.compile(
-            loss='binary_crossentropy',
-            optimizer='adam',
-            metrics=['accuracy']
-        )
-        
-        # Train model with proper steps_per_epoch
-        print("Training model...")
-        history = model.fit(
-            train_ds,
-            steps_per_epoch=train_steps,
-            validation_data=test_ds,
-            epochs=EPOCHS
-        )
-        
-        # Evaluate
-        print("\nEvaluation Results:")
-        test_loss, test_acc = model.evaluate(test_ds)
-        print(f"Test Accuracy: {test_acc:.4f}")
-        
-        # Generate predictions for classification report
-        print("\nGenerating classification report...")
-        y_true, y_pred = [], []
-        for batch in test_ds:
-            texts, labels = batch
-            preds = (model.predict(texts, verbose=0) > 0.5).astype("int32")
-            y_true.extend(labels.numpy())
-            y_pred.extend(preds.flatten())
-        
-        print("\nClassification Report:")
-        print(classification_report(y_true, y_pred, target_names=['ham', 'spam']))
-        
-        # Plot training history
-        plt.figure(figsize=(12, 4))
-        plt.subplot(1, 2, 1)
-        plt.plot(history.history['accuracy'], label='Train Accuracy')
-        plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-        plt.title('Training History')
-        plt.ylabel('Accuracy')
-        plt.xlabel('Epoch')
-        plt.legend()
-        
-        # Confusion matrix
-        plt.subplot(1, 2, 2)
-        cm = tf.math.confusion_matrix(y_true, y_pred)
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                    xticklabels=['ham', 'spam'], 
-                    yticklabels=['ham', 'spam'])
-        plt.title('Confusion Matrix')
-        plt.ylabel('True Label')
-        plt.xlabel('Predicted Label')
-        
-        plt.tight_layout()
-        plt.show()
-        
-        # Save model and tokenizer
-        print("\nSaving model artifacts...")
-        model.save('secure_spam_model.keras')
-        
-        with open('tokenizer.pkl', 'wb') as handle:
-            pickle.dump(dataset.tokenizer, handle)
-        
-        print("Training completed successfully!")
-        
-    except Exception as e:
-        print(f"\nError during training: {str(e)}")
-        if 'client' in locals():
-            client._emergency_cleanup()
+    # Step 3: Configure preprocessing
+    client.configure_preprocessing({
+        "tokenizer": "nltk",
+        "stopwords": True,
+        "reduction": "tfidf"
+    })
+    client.run_preprocessing()
+
+    # Step 4: Train model using internal data
+    client.train(
+        user_train_func=train_model,
+        hyperparams={"max_iter": 1000},
+        target_column="Category"  # Make sure this column is your label (e.g., spam/ham)
+    )
+
+    # Step 5: Evaluate the model
+    results = client.evaluate()
+    print("\n✅ Evaluation Accuracy:", results["accuracy"])
+    print("📊 Classification Report:\n", results["report"])
+
+    # Step 6: Visualize Confusion Matrix
+    y_true = client._SecureDatasetClient__y_val
+    y_pred = client._SecureDatasetClient__trained_model.predict(client._SecureDatasetClient__X_val)
+    cm = confusion_matrix(y_true, y_pred)
+
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=["ham", "spam"], yticklabels=["ham", "spam"])
+    plt.title("Confusion Matrix")
+    plt.xlabel("Predicted")
+    plt.ylabel("Actual")
+    plt.show()
+
+    # Step 7: Save the trained model
+    client.save_model("secure_spam_model.joblib")
+
+    print("\n🚀 Model training and evaluation completed securely.")
 
 if __name__ == "__main__":
     main()

@@ -22,6 +22,7 @@ class SecureSpamDataset(Dataset):
     def _fetch_processed_batch(self, batch_number):
         """Use SDK's secure processing"""
         def process_func(df):
+            print("df ",df)
             return {
                 "text_samples": df.iloc[:, 1].tolist(),  # Messages column
                 "labels": [1 if x == "spam" else 0 for x in df.iloc[:, 0]]  # Labels column
@@ -31,6 +32,7 @@ class SecureSpamDataset(Dataset):
             batch_number=batch_number,
             process_func=process_func
         )
+        print()
                 
         return result
 
