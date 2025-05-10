@@ -82,9 +82,6 @@ def main():
     y_true = client._SecureDatasetClient__y_val
     y_pred = client._SecureDatasetClient__trained_model.predict(client._SecureDatasetClient__X_val)
     cm = confusion_matrix(y_true, y_pred)
-
-    print("y_true ",y_true)
-    print("y_pred ",y_pred)
     
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=["ham", "spam"], yticklabels=["ham", "spam"])
     plt.title("Confusion Matrix")
