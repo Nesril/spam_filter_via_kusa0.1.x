@@ -11,7 +11,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from inspect import signature
 from sklearn.base import BaseEstimator
 
-load_dotenv()
+load_dotenv(override=True)
 
 def train_model_factory(model_class: BaseEstimator, fixed_params=None):
     """
@@ -48,7 +48,7 @@ def main():
     client = SecureDatasetClient(public_id=PUBLIC_ID, secret_key=SECRET_KEY)
     initialization = client.initialize()
     # Step 2: Load encrypted dataset into memory
-    client.fetch_and_decrypt_batch(batch_size=500, batch_number=1)
+    client.fetch_and_decrypt_batch(batch_size=500)
 
     # Step 3: Configure preprocessing
     client.configure_preprocessing({
